@@ -10,178 +10,167 @@ using OfficeOpenXml;
 using PartsCounter.Model;
 using Dapper;
 using System.Data;
+using System.Dynamic;
 
 
 namespace PartsCounter
 {
     class Program
     {
-        static string? connectionString = null;
+        static string? connectionString;
+        static string? logSource;
+        static string? logError;
+        static string? logArchive;
 
         static void Main()
         {
             ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
 
-            // Build configuration
-            var configuration = new ConfigurationBuilder()
-                .SetBasePath(Directory.GetCurrentDirectory())  // current folder where exe runs
-                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
-                .Build();
-
-            connectionString = configuration.GetConnectionString("DefaultConnection");
-
-            #region File Source Path
-            string logSource = configuration["FileSettings:LogsSourcePath"];
-            if (!Directory.Exists(logSource))
-            {
-                Console.WriteLine("Source Directory not found: " + logSource);
+            if (!InitializeConfiguration())
                 return;
-            }
-            #endregion
 
-            #region File Error Path
-            string logError = configuration["FileSettings:ErrorLogsPath"];
-            if (!Directory.Exists(logError))
+            ProcessFile();
+        }
+
+        #region InitializeConfiguration
+        private static bool InitializeConfiguration()
+        {
+            try
             {
-                Console.WriteLine("Error Directory not found: " + logError);
-                return;
-            }
-            #endregion
+                var configuration = new ConfigurationBuilder()
+                    .SetBasePath(Directory.GetCurrentDirectory())
+                    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                    .Build();
 
-            #region File Archive Path
-            string logArchive = configuration["FileSettings:ArchiveLogsPath"];
-            if (!Directory.Exists(logArchive))
+                connectionString = configuration.GetConnectionString("DefaultConnection");
+
+                logSource = configuration["FileSettings:LogsSourcePath"];
+                logError = configuration["FileSettings:ErrorLogsPath"];
+                logArchive = configuration["FileSettings:ArchiveLogsPath"];
+
+                // Validate folders
+                if (!Directory.Exists(logSource))
+                {
+                    Console.WriteLine("Source Directory not found: " + logSource);
+                    return false;
+                }
+
+                if (!Directory.Exists(logError))
+                {
+                    Console.WriteLine("Error Directory not found: " + logError);
+                    return false;
+                }
+
+                if (!Directory.Exists(logArchive))
+                {
+                    Console.WriteLine("Archive Directory not found: " + logArchive);
+                    return false;
+                }
+
+                return true;
+            }
+            catch (Exception ex)
             {
-                Console.WriteLine("Archive Directory not found: " + logArchive);
-                return;
+                Console.WriteLine($"Error loading configuration: {ex.Message}");
+                return false;
             }
-            #endregion
+        }
+        #endregion
 
-            #region Get all XLSX files in Source Path
+        #region ProcessFile
+        private static void ProcessFile()
+        {
             var excelFiles = Directory.GetFiles(logSource, "*.xlsx");
             if (excelFiles.Length == 0)
             {
                 Console.WriteLine("No XLSX files found in: " + logSource);
                 return;
             }
-            #endregion
 
+            Console.WriteLine($"Collecting data is on-going.");
 
             var allSummaries = new List<Models.Summary>();
             var allBreakdowns = new List<Models.Breakdown>();
 
-            Console.WriteLine($"Collecting data is on-going.");
+            string destArchiveFolder = ArchiveFolder();
+            string destErrorFolder = ErrorFolder();
 
             # region Process each CSV file
             foreach (var file in excelFiles)
             {
-                #region Get Parts Counter No from filename
-                var fileName = Path.GetFileName(file);  //Get the file name
-                int partsCounterNo = 0;
-
-                int underscoreIndex = fileName.IndexOf('_');
-                int dotIndex = fileName.LastIndexOf(".xlsx", StringComparison.OrdinalIgnoreCase);
-
-                if (underscoreIndex != -1 && dotIndex != -1 && underscoreIndex < dotIndex)
-                {
-                    string between = fileName.Substring(underscoreIndex + 1, dotIndex - (underscoreIndex + 1));
-
-                    // Extract only digits from the substring
-                    var digitsOnly = new string(between.Where(char.IsDigit).ToArray());
-
-                    if (!string.IsNullOrEmpty(digitsOnly))
-                    {
-                        partsCounterNo = int.Parse(digitsOnly);
-                    }
-                }
-                #endregion
-
                 try
                 {
+                    var fileName = Path.GetFileName(file); // Get only file name
+                    int partsCounterNo = GetPartsCounterNoFromFile(fileName);
+
                     using (var package = new ExcelPackage(new FileInfo(file)))
                     {
                         var worksheet = package.Workbook.Worksheets.FirstOrDefault();
                         if (worksheet == null)
                         {
                             Console.WriteLine($"No worksheet found in file {file}");
-                            MoveFileToErrorFolder(file, logError);
+                            MoveFileToErrorFolder(file, destErrorFolder);
                             continue;
                         }
 
                         #region Parse summary from second row (row 2)
-                        try
-                        {
-                            var summaryCols = Enumerable.Range(1, worksheet.Dimension.End.Column)
-                                                    .Select(c => worksheet.Cells[2, c].Text)
-                                                    .ToArray();
-                            var summary = ParseSummary(summaryCols, partsCounterNo);
-                            allSummaries.Add(summary);
-                        }
-                        catch (Exception ex)
-                        {
-                            allSummaries.Clear();
-                            Console.WriteLine($"Failed to parse in {file}: {ex.Message}");
-                            MoveFileToErrorFolder(file, logError);
-                            continue;
-                        }
+                        var summaryCols = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                                            .Select(c => worksheet.Cells[2, c].Text)
+                                            .ToArray();
+                        var summary = ParseSummary(summaryCols, partsCounterNo);
+                        allSummaries.Add(summary);
+
                         #endregion
 
                         #region Parse breakdown starting from fourth row (row 4)
                         for (int row = 4; row <= worksheet.Dimension.End.Row; row++)
                         {
-                            try
-                            {
-                                var cols = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                            var cols = Enumerable.Range(1, worksheet.Dimension.End.Column)
                                                  .Select(c => worksheet.Cells[row, c].Text)
                                                  .ToArray();
-                                var breakdown = ParseBreakdown(cols, partsCounterNo);
-                                allBreakdowns.Add(breakdown);
-                            }
-                            catch (Exception ex)
-                            {
-                                allBreakdowns.Clear();
-                                Console.WriteLine($"Failed to parse breakdown row {row} in {file}: {ex.Message}");
-                                MoveFileToErrorFolder(file, logError);
-                                continue;
-                            }
+                            var breakdown = ParseBreakdown(cols, partsCounterNo);
+                            allBreakdowns.Add(breakdown);
                         }
                         #endregion
 
                         #region Save file data to DB
-                        try
-                        {
-                            int IDSummary = SaveFileSummary(allSummaries, connectionString);
-                            SaveFileBreakdown(allBreakdowns, connectionString, IDSummary);
-                        }
-                        catch (Exception ex)
-                        {
-                            allBreakdowns.Clear();
-                            Console.WriteLine($"Failed saving data of the {file}: {ex.Message}");
-                            MoveFileToErrorFolder(file, logError);
-                            continue;
-                        }
+                        int IDSummary = SaveFileSummary(allSummaries, connectionString);
+                        SaveFileBreakdown(allBreakdowns, connectionString, IDSummary);
                         #endregion
 
-                        MoveFileToArchieveFolder(file, logArchive);
+                        MoveFileToArchieveFolder(file, destArchiveFolder);
                         allSummaries.Clear();
                         allBreakdowns.Clear();
+                        Console.WriteLine($"Success: {fileName}");
                     }
                 }
                 catch (Exception ex)
                 {
-                    allSummaries.Clear ();
-                    allBreakdowns.Clear ();
+                    allSummaries.Clear();
+                    allBreakdowns.Clear();
+                    MoveFileToErrorFolder(file, destErrorFolder);
                     Console.WriteLine($"Error processing file {file}: {ex.Message}");
+                    continue;
                 }
             }
             #endregion
 
             Console.WriteLine($"Collecting data is successful!");
         }
+        #endregion
 
         #region parseSummary
         static Models.Summary ParseSummary(string[] cols, int partsCounterNo)
         {
+            // Check each column for empty/whitespace
+            for (int i = 0; i < 7; i++)
+            {
+                if (string.IsNullOrWhiteSpace(cols[i]))
+                {
+                    throw new ArgumentException($"Column index {i} cannot be empty.");
+                }
+            }
+
             int.TryParse(cols[4], out int blocksCount);
             int.TryParse(cols[5], out int actualCount);
             int.TryParse(cols[6], out int ngMark);
@@ -208,6 +197,15 @@ namespace PartsCounter
         #region Parse Breakdown
         static Models.Breakdown ParseBreakdown(string[] cols, int partsCounterNo)
         {
+            // Check each column for empty/whitespace
+            for (int i = 0; i < 6; i++)
+            {
+                if (string.IsNullOrWhiteSpace(cols[i]))
+                {
+                    throw new ArgumentException($"Column index {i} cannot be empty.");
+                }
+            }
+
             int.TryParse(cols[4], out int palletno);
             int.TryParse(cols[5], out int actualcount);
             return new Models.Breakdown
@@ -227,19 +225,19 @@ namespace PartsCounter
         #endregion
 
         #region Helper method to move file to error folder safely
-        static void MoveFileToErrorFolder(string file, string logError)
+        static void MoveFileToErrorFolder(string file, string destErrorFolder)
         {
             try
             {
                 var fileName = Path.GetFileName(file);
-                var destPath = Path.Combine(logError, fileName);
+                var destPath = Path.Combine(destErrorFolder, fileName);
 
                 // If file exists in destination, rename it with timestamp to avoid overwrite
                 if (File.Exists(destPath))
                 {
                     var timestamp = DateTime.Now.ToString("yyyyMMddHHmmssfff");
                     var newFileName = $"{Path.GetFileNameWithoutExtension(fileName)}_{timestamp}{Path.GetExtension(fileName)}";
-                    destPath = Path.Combine(logError, newFileName);
+                    destPath = Path.Combine(destErrorFolder, newFileName);
                 }
 
                 File.Move(file, destPath);
@@ -253,19 +251,19 @@ namespace PartsCounter
         #endregion
 
         #region Helper method to move file to archive folder safely
-        static void MoveFileToArchieveFolder(string file, string logArchive)
+        static void MoveFileToArchieveFolder(string file, string destArchiveFolder)
         {
             try
             {
                 var fileName = Path.GetFileName(file);
-                var destPath = Path.Combine(logArchive, fileName);
+                var destPath = Path.Combine(destArchiveFolder, fileName);
 
                 // If file exists in destination, rename it with timestamp to avoid overwrite
                 if (File.Exists(destPath))
                 {
                     var timestamp = DateTime.Now.ToString("yyyyMMddHHmmssfff");
                     var newFileName = $"{Path.GetFileNameWithoutExtension(fileName)}_{timestamp}{Path.GetExtension(fileName)}";
-                    destPath = Path.Combine(logArchive, newFileName);
+                    destPath = Path.Combine(destArchiveFolder, newFileName);
                 }
 
                 File.Move(file, destPath);
@@ -345,8 +343,55 @@ namespace PartsCounter
         }
         #endregion
 
+        #region destination folders
+        private static string ArchiveFolder()
+        {
+            DateTime now = DateTime.Now;
+            string year = now.Year.ToString();
+            string month = now.ToString("MMMM");
 
+            string baseFolder = logArchive;
+            string destArchiveFolder = Path.Combine(baseFolder, year, month);
+            Directory.CreateDirectory(destArchiveFolder);
+            return destArchiveFolder;
+        }
 
+        private static string ErrorFolder()
+        {
+            DateTime now = DateTime.Now;
+            string year = now.Year.ToString();
+            string month = now.ToString("MMMM");
+
+            string baseFolder = logError;
+            string destErrorFolder = Path.Combine(baseFolder, year, month);
+            Directory.CreateDirectory(destErrorFolder);
+            return destErrorFolder;
+        }
+        #endregion
+
+        #region GetPartsCounterNoFromFile
+        private static int GetPartsCounterNoFromFile(string fileName)
+        {
+            int underscoreIndex = fileName.IndexOf('_');
+            int dotIndex = fileName.LastIndexOf(".xlsx", StringComparison.OrdinalIgnoreCase);
+
+            if (underscoreIndex != -1 && dotIndex != -1 && underscoreIndex < dotIndex)
+            {
+                string between = fileName.Substring(underscoreIndex + 1, dotIndex - (underscoreIndex + 1));
+
+                // Extract only digits
+                var digitsOnly = new string(between.Where(char.IsDigit).ToArray());
+
+                if (!string.IsNullOrEmpty(digitsOnly))
+                {
+                    return int.Parse(digitsOnly);
+                }
+            }
+
+            // Throw or return a special value to indicate error
+            throw new ArgumentException($"PartsCounterNo is missing or invalid in file name: {fileName}");
+        }
+        #endregion
 
     }
 }
