@@ -187,7 +187,7 @@ namespace PartsCounter
         static Models.Summary ParseSummary(string[] cols, int partsCounterNo)
         {
             // Check each column for empty/whitespace
-            for (int i = 0; i < 7; i++)
+            for (int i = 0; i < 8; i++)
             {
                 if (string.IsNullOrWhiteSpace(cols[i]))
                 {
@@ -195,24 +195,24 @@ namespace PartsCounter
                 }
             }
 
-            int.TryParse(cols[4], out int blocksCount);
-            int.TryParse(cols[5], out int actualCount);
-            int.TryParse(cols[6], out int ngMark);
-            int.TryParse(cols[7], out int unacc);
+            int.TryParse(cols[5], out int blocksCount);
+            int.TryParse(cols[6], out int actualCount);
+            int.TryParse(cols[7], out int ngMark);
+            int.TryParse(cols[8], out int unacc);
 
             return new Models.Summary
             {
                 log_datetime = DateTime.ParseExact(cols[0], "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
-                log_order_no = "",
-                log_item_code = cols[1],
-                log_batch_no = cols[2],
-                log_sublot_no = cols[3],
+                log_order_no = cols[1],
+                log_item_code = cols[3],
+                log_batch_no = cols[3],
+                log_sublot_no = cols[4],
                 log_blocks_count = blocksCount,
                 log_actual_count = actualCount,
                 log_ng_mark = ngMark,
                 log_unacc = unacc,
-                log_reason = cols.Length > 8 ? cols[8] : "",
-                log_high_unacc_reason = cols.Length > 9 ? cols[9] : "",
+                log_reason = cols.Length > 9 ? cols[9] : "",
+                log_high_unacc_reason = cols.Length > 10 ? cols[10] : "",
                 log_part_counter_no = partsCounterNo,
             };
         }
@@ -222,7 +222,7 @@ namespace PartsCounter
         static Models.Breakdown ParseBreakdown(string[] cols, int partsCounterNo)
         {
             // Check each column for empty/whitespace
-            for (int i = 0; i < 6; i++)
+            for (int i = 0; i < 7; i++)
             {
                 if (string.IsNullOrWhiteSpace(cols[i]))
                 {
@@ -230,18 +230,18 @@ namespace PartsCounter
                 }
             }
 
-            int.TryParse(cols[4], out int palletno);
-            int.TryParse(cols[5], out int actualcount);
+            int.TryParse(cols[5], out int palletno);
+            int.TryParse(cols[6], out int actualcount);
             return new Models.Breakdown
             {
                 log_datetime = DateTime.ParseExact(cols[0], "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
-                log_order_no = "",
-                log_item_code = cols[1],
-                log_batch_no = cols[2],
-                log_sublot_no = cols[3],
+                log_order_no = cols[1],
+                log_item_code = cols[2],
+                log_batch_no = cols[3],
+                log_sublot_no = cols[4],
                 log_pallet_no = palletno,
                 log_actual_count = actualcount,
-                log_op_number = cols[6],
+                log_op_number = cols[7],
                 log_parts_counter_no = partsCounterNo,
                 summaryID = 0
             };
