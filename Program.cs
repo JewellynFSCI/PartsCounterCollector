@@ -44,9 +44,12 @@ namespace PartsCounter
 
                 connectionString = configuration.GetConnectionString("DefaultConnection");
 
-                logSource = configuration["FileSettings:LogsSourcePath"];
-                logError = configuration["FileSettings:ErrorLogsPath"];
-                logArchive = configuration["FileSettings:ArchiveLogsPath"];
+                string settingsFilePath = "FileSetting.cn"; // relative or absolute path
+                var settings = LoadSettings(settingsFilePath);
+
+                logSource = settings["LogsSourcePath"];
+                logError = settings["ErrorLogsPath"];
+                logArchive = settings["ArchiveLogsPath"]; 
 
                 // Validate folders
                 if (!Directory.Exists(logSource))
@@ -76,6 +79,25 @@ namespace PartsCounter
             }
         }
         #endregion
+
+        static Dictionary<string, string> LoadSettings(string filePath)
+        {
+            var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var line in File.ReadAllLines(filePath))
+            {
+                if (string.IsNullOrWhiteSpace(line) || line.TrimStart().StartsWith("#"))
+                    continue; // skip empty lines or comments
+
+                var parts = line.Split('=', 2);
+                if (parts.Length == 2)
+                {
+                    settings[parts[0].Trim()] = parts[1].Trim();
+                }
+            }
+
+            return settings;
+        }
 
         #region ProcessFile
         private static void ProcessFile()
