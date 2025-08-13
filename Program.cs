@@ -80,6 +80,7 @@ namespace PartsCounter
         }
         #endregion
 
+        #region LoadSettings
         static Dictionary<string, string> LoadSettings(string filePath)
         {
             var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -98,6 +99,7 @@ namespace PartsCounter
 
             return settings;
         }
+        #endregion
 
         #region ProcessFile
         private static void ProcessFile()
