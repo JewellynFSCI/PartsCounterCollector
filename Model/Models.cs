@@ -11,7 +11,7 @@ namespace PartsCounter.Model
         public class Summary
         {
             public DateTime log_datetime { get; set; }
-            public string log_order_no { get; set; }
+            public string log_wos { get; set; }
             public string log_item_code { get; set; }
             public string log_batch_no { get; set; }
             public string log_sublot_no { get; set; }
@@ -27,7 +27,7 @@ namespace PartsCounter.Model
         public class Breakdown
         {
             public DateTime log_datetime { get; set; }
-            public string log_order_no { get; set; }
+            public string log_wos { get; set; }
             public string log_item_code { get; set; }
             public string log_batch_no { get; set; }
             public string log_sublot_no { get; set; }

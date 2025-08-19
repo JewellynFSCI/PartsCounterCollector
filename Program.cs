@@ -21,6 +21,7 @@ namespace PartsCounter
         static string? logSource;
         static string? logError;
         static string? logArchive;
+        static string logFilePath;
 
         static void Main()
         {
@@ -49,32 +50,40 @@ namespace PartsCounter
 
                 logSource = settings["LogsSourcePath"];
                 logError = settings["ErrorLogsPath"];
-                logArchive = settings["ArchiveLogsPath"]; 
+                logArchive = settings["ArchiveLogsPath"];
+
 
                 // Validate folders
                 if (!Directory.Exists(logSource))
                 {
-                    Console.WriteLine("Source Directory not found: " + logSource);
+                    Console.WriteLine($"Source Directory not found: {logSource}");
+                    string message = $"Source Directory not found: {logSource}";   
+                    SaveErrorLog(message);
                     return false;
                 }
 
                 if (!Directory.Exists(logError))
                 {
-                    Console.WriteLine("Error Directory not found: " + logError);
+                    Console.WriteLine($"Error Directory not found: {logError}. It will automatically create error folder.");
+                    string message = $"Error Directory not found: {logError}. It will automatically create error folder.";
+                    SaveErrorLog(message);
                     return false;
                 }
 
                 if (!Directory.Exists(logArchive))
                 {
-                    Console.WriteLine("Archive Directory not found: " + logArchive);
+                    Console.WriteLine($"Archive Directory not found: {logArchive}");
+                    string message = $"Archive Directory not found: {logArchive}";
+                    SaveErrorLog(message);
                     return false;
                 }
-
                 return true;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error loading configuration: {ex.Message}");
+                string message = $"Error loading configuration: {ex.Message}";
+                SaveErrorLog(message);
                 return false;
             }
         }
@@ -107,7 +116,9 @@ namespace PartsCounter
             var excelFiles = Directory.GetFiles(logSource, "*.xlsx");
             if (excelFiles.Length == 0)
             {
-                Console.WriteLine("No XLSX files found in: " + logSource);
+                Console.WriteLine($"No XLSX files found in: {logSource}");
+                string message = $"No XLSX files found in: {logSource}";
+                SaveErrorLog(message);
                 return;
             }
 
@@ -122,9 +133,9 @@ namespace PartsCounter
             # region Process each CSV file
             foreach (var file in excelFiles)
             {
+                var fileName = Path.GetFileName(file); // Get only file name
                 try
                 {
-                    var fileName = Path.GetFileName(file); // Get only file name
                     int partsCounterNo = GetPartsCounterNoFromFile(fileName);
 
                     using (var package = new ExcelPackage(new FileInfo(file)))
@@ -133,29 +144,71 @@ namespace PartsCounter
                         if (worksheet == null)
                         {
                             Console.WriteLine($"No worksheet found in file {file}");
+                            string message = $"No worksheet found in file {file}";
+                            SaveErrorLog(message);
                             MoveFileToErrorFolder(file, destErrorFolder);
                             continue;
                         }
 
                         #region Parse summary from second row (row 2)
-                        var summaryCols = Enumerable.Range(1, worksheet.Dimension.End.Column)
-                                            .Select(c => worksheet.Cells[2, c].Text)
-                                            .ToArray();
-                        var summary = ParseSummary(summaryCols, partsCounterNo);
-                        allSummaries.Add(summary);
+                        // Get headers (row 1)
+                        var headers = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                            .Select(c => worksheet.Cells[1, c].Text)
+                            .ToArray();
 
+                        // Build header map (case-insensitive)
+                        var headerMap = headers
+                            .Select((h, i) => new { h, i })
+                            .ToDictionary(x => x.h.Trim(), x => x.i, StringComparer.OrdinalIgnoreCase);
+
+                        // Get row 2 values
+                        var summaryCols = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                            .Select(c => worksheet.Cells[2, c].Text)
+                            .ToArray();
+
+                        // Now call your parser
+                        var summary = ParseSummary(summaryCols, headerMap, partsCounterNo);
+                        allSummaries.Add(summary);
                         #endregion
 
                         #region Parse breakdown starting from fourth row (row 4)
+                        // Build header map once (row 3 = headers)
+                        var breakdownHeaders = Enumerable.Range(1, worksheet.Dimension.End.Column)
+                            .Select(c => worksheet.Cells[3, c].Text)
+                            .ToArray();
+
+                        var breakdownHeaderMap = breakdownHeaders
+                            .Select((h, i) => new { h = h.Trim(), i })
+                            .Where(x => !string.IsNullOrWhiteSpace(x.h))        // remove empty headers
+                            .GroupBy(x => x.h, StringComparer.OrdinalIgnoreCase) // group duplicates
+                            .ToDictionary(g => g.Key, g => g.First().i, StringComparer.OrdinalIgnoreCase); // take first index
+
+
+                        // Loop through data rows (row 4+)
                         for (int row = 4; row <= worksheet.Dimension.End.Row; row++)
                         {
                             var cols = Enumerable.Range(1, worksheet.Dimension.End.Column)
                                                  .Select(c => worksheet.Cells[row, c].Text)
                                                  .ToArray();
-                            var breakdown = ParseBreakdown(cols, partsCounterNo);
+
+                            var breakdown = ParseBreakdown(cols, breakdownHeaderMap, partsCounterNo);
                             allBreakdowns.Add(breakdown);
                         }
                         #endregion
+
+                        //Check id data exist in DB
+                        bool checkDuplicate = CheckSummaryDuplicate(allSummaries, connectionString);
+                        if (checkDuplicate)
+                        {
+                            //with exisiting data in db
+                            Console.WriteLine($"This log already exists in database! ({fileName})");
+                            string message = $"This log already exists in database! ({fileName})";
+                            SaveErrorLog(message);
+                            MoveFileToErrorFolder(file, destErrorFolder);
+                            allSummaries.Clear();
+                            allBreakdowns.Clear();
+                            continue;
+                        }
 
                         #region Save file data to DB
                         int IDSummary = SaveFileSummary(allSummaries, connectionString);
@@ -173,7 +226,9 @@ namespace PartsCounter
                     allSummaries.Clear();
                     allBreakdowns.Clear();
                     MoveFileToErrorFolder(file, destErrorFolder);
-                    Console.WriteLine($"Error processing file {file}: {ex.Message}");
+                    Console.WriteLine($"Error processing file - {fileName}: {ex.Message}");
+                    string message = $"Error processing file - {fileName}: {ex.Message}";
+                    SaveErrorLog(message);
                     continue;
                 }
             }
@@ -184,64 +239,80 @@ namespace PartsCounter
         #endregion
 
         #region parseSummary
-        static Models.Summary ParseSummary(string[] cols, int partsCounterNo)
+        static Models.Summary ParseSummary(string[] cols, Dictionary<string, int> headerMap, int partsCounterNo)
         {
-            // Check each column for empty/whitespace
-            for (int i = 0; i < 8; i++)
+            // Helper to safely get a column by header name
+            string Get(string header)
             {
-                if (string.IsNullOrWhiteSpace(cols[i]))
-                {
-                    throw new ArgumentException($"Column index {i} cannot be empty.");
-                }
+                if (!headerMap.TryGetValue(header, out int index) || index >= cols.Length)
+                    return string.Empty;
+                return cols[index];
             }
 
-            int.TryParse(cols[5], out int blocksCount);
-            int.TryParse(cols[6], out int actualCount);
-            int.TryParse(cols[7], out int ngMark);
-            int.TryParse(cols[8], out int unacc);
+            string Require(string header)
+            {
+                var value = Get(header);
+                if (string.IsNullOrWhiteSpace(value))
+                    throw new ArgumentException($"Column '{header}' cannot be empty.");
+                return value;
+            }
+
+            // Parse numeric values
+            int.TryParse(Require("No. of Blocks"), out int blocksCount);
+            int.TryParse(Require("Actual Count"), out int actualCount);
+            int.TryParse(Require("NG Mark"), out int ngMark);
+            int.TryParse(Require("Unacc"), out int unacc);
 
             return new Models.Summary
             {
-                log_datetime = DateTime.ParseExact(cols[0], "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
-                log_order_no = cols[1],
-                log_item_code = cols[3],
-                log_batch_no = cols[3],
-                log_sublot_no = cols[4],
+                log_datetime = DateTime.ParseExact(Require("Date & Time"), "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                log_wos = Get("WOS"),
+                log_item_code = Require("Item Code"),
+                log_batch_no = Require("Batch No."),
+                log_sublot_no = Require("Sublot No."),
                 log_blocks_count = blocksCount,
                 log_actual_count = actualCount,
                 log_ng_mark = ngMark,
                 log_unacc = unacc,
-                log_reason = cols.Length > 9 ? cols[9] : "",
-                log_high_unacc_reason = cols.Length > 10 ? cols[10] : "",
+                log_reason = Get("Reason"),
+                log_high_unacc_reason = Require("High Unacc. Reason"),
                 log_part_counter_no = partsCounterNo,
             };
         }
         #endregion
 
         #region Parse Breakdown
-        static Models.Breakdown ParseBreakdown(string[] cols, int partsCounterNo)
+        static Models.Breakdown ParseBreakdown(string[] cols, Dictionary<string, int> headerMap, int partsCounterNo)
         {
-            // Check each column for empty/whitespace
-            for (int i = 0; i < 7; i++)
+            // Helper to safely get a column by header name
+            string Get(string header)
             {
-                if (string.IsNullOrWhiteSpace(cols[i]))
-                {
-                    throw new ArgumentException($"Column index {i} cannot be empty.");
-                }
+                if (!headerMap.TryGetValue(header, out int index) || index >= cols.Length)
+                    return string.Empty;
+                return cols[index];
+            }
+            string Require(string header)
+            {
+                var value = Get(header);
+                if (string.IsNullOrWhiteSpace(value))
+                    throw new ArgumentException($"Column '{header}' cannot be empty.");
+                return value;
             }
 
-            int.TryParse(cols[5], out int palletno);
-            int.TryParse(cols[6], out int actualcount);
+            // Parse numeric values
+            int.TryParse(Require("Pallet No."), out int palletno);
+            int.TryParse(Require("Actual Count"), out int actualcount);
+
             return new Models.Breakdown
             {
-                log_datetime = DateTime.ParseExact(cols[0], "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
-                log_order_no = cols[1],
-                log_item_code = cols[2],
-                log_batch_no = cols[3],
-                log_sublot_no = cols[4],
+                log_datetime = DateTime.ParseExact(Require("Date & Time"), "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                log_wos = Get("WOS"),
+                log_item_code = Require("Item Code"),
+                log_batch_no = Require("Batch No."),
+                log_sublot_no = Require("Sublot No."),
                 log_pallet_no = palletno,
                 log_actual_count = actualcount,
-                log_op_number = cols[7],
+                log_op_number = Require("OP Number"),
                 log_parts_counter_no = partsCounterNo,
                 summaryID = 0
             };
@@ -259,7 +330,7 @@ namespace PartsCounter
                 // If file exists in destination, rename it with timestamp to avoid overwrite
                 if (File.Exists(destPath))
                 {
-                    var timestamp = DateTime.Now.ToString("yyyyMMddHHmmssfff");
+                    var timestamp = DateTime.Now.ToString("yyyyMMddHHmm");
                     var newFileName = $"{Path.GetFileNameWithoutExtension(fileName)}_{timestamp}{Path.GetExtension(fileName)}";
                     destPath = Path.Combine(destErrorFolder, newFileName);
                 }
@@ -270,6 +341,8 @@ namespace PartsCounter
             catch (Exception moveEx)
             {
                 Console.WriteLine($"Failed to move file '{file}' to error folder: {moveEx.Message}");
+                string message = $"Failed to move file '{file}' to error folder: {moveEx.Message}";
+                SaveErrorLog(message);
             }
         }
         #endregion
@@ -285,7 +358,7 @@ namespace PartsCounter
                 // If file exists in destination, rename it with timestamp to avoid overwrite
                 if (File.Exists(destPath))
                 {
-                    var timestamp = DateTime.Now.ToString("yyyyMMddHHmmssfff");
+                    var timestamp = DateTime.Now.ToString("yyyyMMddHHmm");
                     var newFileName = $"{Path.GetFileNameWithoutExtension(fileName)}_{timestamp}{Path.GetExtension(fileName)}";
                     destPath = Path.Combine(destArchiveFolder, newFileName);
                 }
@@ -296,7 +369,41 @@ namespace PartsCounter
             catch (Exception moveEx)
             {
                 Console.WriteLine($"Failed to move file '{file}' to error folder: {moveEx.Message}");
+                string message = $"Failed to move file '{file}' to error folder: {moveEx.Message}";
+                SaveErrorLog(message);
             }
+        }
+        #endregion
+
+        #region CheckSummaryDuplicate
+        private static bool CheckSummaryDuplicate(List<Models.Summary> allSummaries, string connectionString)
+        {
+            using (var connection = new MySqlConnection(connectionString))
+            {
+                connection.Open();
+                string storedProc = "sp_CheckDuplicateSummary";
+
+                foreach (var summary in allSummaries)
+                {
+                    var param = new DynamicParameters();
+                    param.Add("p_log_item_code", summary.log_item_code);
+                    param.Add("p_log_batch_no", summary.log_batch_no);
+                    param.Add("p_log_sublot_no", summary.log_sublot_no);
+
+                    // Assume SP returns 1 if duplicate exists, 0 otherwise
+                    int result = connection.QuerySingle<int>(
+                        storedProc,
+                        param,
+                        commandType: CommandType.StoredProcedure
+                    );
+
+                    if (result == 1)
+                    {
+                        return true; // Duplicate found
+                    }
+                }
+            }
+            return false; // No duplicates found
         }
         #endregion
 
@@ -314,7 +421,7 @@ namespace PartsCounter
                 {
                     var param = new DynamicParameters();
                     param.Add("p_log_datetime", summary.log_datetime);
-                    param.Add("p_log_order_no", string.IsNullOrEmpty(summary.log_order_no) ? " " : summary.log_order_no);
+                    param.Add("p_log_wos", string.IsNullOrEmpty(summary.log_wos) ? "" : summary.log_wos);
                     param.Add("p_log_item_code", summary.log_item_code);
                     param.Add("p_log_batch_no", summary.log_batch_no);
                     param.Add("p_log_sublot_no", summary.log_sublot_no);
@@ -351,7 +458,7 @@ namespace PartsCounter
                     var param = new
                     {
                         p_log_datetime = breakdown.log_datetime,
-                        p_log_order_no = breakdown.log_order_no,
+                        p_log_wos = string.IsNullOrEmpty(breakdown.log_wos) ? "" : breakdown.log_wos,
                         p_log_item_code = breakdown.log_item_code,
                         p_log_batch_no = breakdown.log_batch_no,
                         p_log_sublot_no = breakdown.log_sublot_no,
@@ -391,6 +498,21 @@ namespace PartsCounter
             Directory.CreateDirectory(destErrorFolder);
             return destErrorFolder;
         }
+      
+
+        private static string ErrorLogFolder()
+        {
+            DateTime now = DateTime.Now;
+            string year = now.Year.ToString();
+            string month = now.ToString("MMMM");
+            string day = now.ToString("dd");
+            string errorlog = $"ErrorLog";
+
+            string baseFolder = logError;
+            string destErrorLogFolder = Path.Combine(baseFolder, year, month,errorlog);
+            Directory.CreateDirectory(destErrorLogFolder);
+            return destErrorLogFolder;
+        }
         #endregion
 
         #region GetPartsCounterNoFromFile
@@ -417,6 +539,25 @@ namespace PartsCounter
         }
         #endregion
 
+        #region 'SaveErrorLog'
+        private static string SaveErrorLog(string message)
+        {
+            string destErrorLogFolder = ErrorLogFolder();
+
+            // If logFilePath is not set yet, create a new file for this run
+            if (string.IsNullOrEmpty(logFilePath))
+            {
+                string logFileName = "errorLog_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+                logFilePath = Path.Combine(destErrorLogFolder, logFileName);
+            }
+
+            // Append message with timestamp
+            string logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
+            File.AppendAllText(logFilePath, logEntry + Environment.NewLine);
+
+            return logFilePath;
+        }
+        #endregion
     }
 }
 
