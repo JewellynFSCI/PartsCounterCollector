@@ -57,7 +57,7 @@ namespace PartsCounter
                 if (!Directory.Exists(logSource))
                 {
                     Console.WriteLine($"Source Directory not found: {logSource}");
-                    string message = $"Source Directory not found: {logSource}";   
+                    string message = $"Source Directory not found: {logSource}";
                     SaveErrorLog(message);
                     return false;
                 }
@@ -498,7 +498,7 @@ namespace PartsCounter
             Directory.CreateDirectory(destErrorFolder);
             return destErrorFolder;
         }
-      
+
 
         private static string ErrorLogFolder()
         {
@@ -506,10 +506,19 @@ namespace PartsCounter
             string year = now.Year.ToString();
             string month = now.ToString("MMMM");
             string day = now.ToString("dd");
-            string errorlog = $"ErrorLog";
+
+            //Comment by: Jpguillermo  |   Aug 26, 2025
+            //string errorlog = $"{year}/{month} - ErrorLog.log";
+            //End of comment
 
             string baseFolder = logError;
-            string destErrorLogFolder = Path.Combine(baseFolder, year, month,errorlog);
+
+            //Modified by: Jpguillermo  |   Aug 26, 2025
+            //Purpose: Change to Log File and encode only to 1 log file.
+            //string destErrorLogFolder = Path.Combine(baseFolder, year, month, errorLog);
+            string destErrorLogFolder = Path.Combine(baseFolder, year, month);
+            //End ogf modification
+
             Directory.CreateDirectory(destErrorLogFolder);
             return destErrorLogFolder;
         }
@@ -547,7 +556,12 @@ namespace PartsCounter
             // If logFilePath is not set yet, create a new file for this run
             if (string.IsNullOrEmpty(logFilePath))
             {
-                string logFileName = "errorLog_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+                //Modified by: Jpguillermo  |   Aug 26, 2025
+                //Purpose: Change to Log File and encode only to 1 log file.
+                //string logFileName = "errorLog_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".txt";
+                string logFileName = "errorLog_" + DateTime.Now.ToString("yyyyMM") + ".log";
+                //End Modification Aug 26, 2025
+
                 logFilePath = Path.Combine(destErrorLogFolder, logFileName);
             }
 
