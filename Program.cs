@@ -265,7 +265,7 @@ namespace PartsCounter
 
             return new Models.Summary
             {
-                log_datetime = DateTime.ParseExact(Require("Date & Time"), "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
                 log_wos = Get("WOS"),
                 log_item_code = Require("Item Code"),
                 log_batch_no = Require("Batch No."),
@@ -305,7 +305,7 @@ namespace PartsCounter
 
             return new Models.Breakdown
             {
-                log_datetime = DateTime.ParseExact(Require("Date & Time"), "ddMMyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
                 log_wos = Get("WOS"),
                 log_item_code = Require("Item Code"),
                 log_batch_no = Require("Batch No."),
