@@ -1,0 +1,5 @@
+﻿C:\Users\jpguillermo\Documents\Visual Studio 2022\PartsCounter\PartsCounter v5\Model\Models.cs
+C:\Users\jpguillermo\Documents\Visual Studio 2022\PartsCounter\PartsCounter v5\Program.cs
+C:\Users\jpguillermo\Documents\Visual Studio 2022\PartsCounter\PartsCounter v5\.gitattributes
+C:\Users\jpguillermo\Documents\Visual Studio 2022\PartsCounter\PartsCounter v5\.gitignore
+C:\Users\jpguillermo\Documents\Visual Studio 2022\PartsCounter\PartsCounter v5\appsettings.json

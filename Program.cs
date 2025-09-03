@@ -263,9 +263,17 @@ namespace PartsCounter
             int.TryParse(Require("NG Mark"), out int ngMark);
             int.TryParse(Require("Unacc"), out int unacc);
 
+            //TRY V5 Force Gregorian Calendar
+            var culture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+            culture.DateTimeFormat.Calendar = new GregorianCalendar();
+            //END TRY
+
             return new Models.Summary
             {
-                log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                //TRY v5 Force Gregorian Calendar
+                log_datetime = DateTime.ParseExact(Require("Date & Time"),"MMddyyyy HH:mm:ss",culture),
+                //log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+
                 log_wos = Get("WOS"),
                 log_item_code = Require("Item Code"),
                 log_batch_no = Require("Batch No."),
@@ -275,7 +283,7 @@ namespace PartsCounter
                 log_ng_mark = ngMark,
                 log_unacc = unacc,
                 log_reason = Get("Reason"),
-                log_high_unacc_reason = Require("High Unacc. Reason"),
+                log_high_unacc_reason = Get("High Unacc. Reason"),
                 log_part_counter_no = partsCounterNo,
             };
         }
@@ -303,9 +311,17 @@ namespace PartsCounter
             int.TryParse(Require("Pallet No."), out int palletno);
             int.TryParse(Require("Actual Count"), out int actualcount);
 
+            //TRY v5 Force Gregorian Calendar
+            var culture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+            culture.DateTimeFormat.Calendar = new GregorianCalendar();
+            //end try
+
             return new Models.Breakdown
             {
-                log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+                //TRY v5 Force Gregorian Calendar
+                log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", culture),
+                //log_datetime = DateTime.ParseExact(Require("Date & Time"), "MMddyyyy HH:mm:ss", CultureInfo.InvariantCulture),
+
                 log_wos = Get("WOS"),
                 log_item_code = Require("Item Code"),
                 log_batch_no = Require("Batch No."),
