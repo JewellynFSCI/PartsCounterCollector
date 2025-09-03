@@ -405,6 +405,7 @@ namespace PartsCounter
                     param.Add("p_log_item_code", summary.log_item_code);
                     param.Add("p_log_batch_no", summary.log_batch_no);
                     param.Add("p_log_sublot_no", summary.log_sublot_no);
+                    param.Add("p_log_part_counter_no", summary.log_part_counter_no);
 
                     // Assume SP returns 1 if duplicate exists, 0 otherwise
                     int result = connection.QuerySingle<int>(
